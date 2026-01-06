@@ -97,6 +97,11 @@ check_root() {
 # Load configuration
 load_config() {
     if [[ -f "$CONFIG_FILE" ]]; then
+        # Validate config file before sourcing to prevent code execution
+        if grep -qE '^\s*(rm|mv|sudo|eval|exec|system|`|\$\()' "$CONFIG_FILE"; then
+            print_error "Configuration file contains potentially dangerous commands"
+            return 1
+        fi
         source "$CONFIG_FILE"
         print_info "Configuration loaded from $CONFIG_FILE"
     else
@@ -124,7 +129,10 @@ GSM_BAUDRATE="$GSM_BAUDRATE"
 # Bridge Configuration
 BRIDGE_PORT="$BRIDGE_PORT"
 EOF
+    # Set secure permissions to protect sensitive data
+    chmod 600 "$CONFIG_FILE"
     print_success "Configuration saved to $CONFIG_FILE"
+    print_info "File permissions set to 600 (owner read/write only)"
 }
 
 #########################################################################
@@ -170,6 +178,8 @@ configure_sip() {
         read -p "Enter SIP username: " SIP_USERNAME
         read -sp "Enter SIP password: " SIP_PASSWORD
         echo
+        print_warning "Note: Password will be stored in plain text in $CONFIG_FILE"
+        print_warning "Ensure proper file permissions: chmod 600 $CONFIG_FILE"
         read -p "Enter SIP port [5060]: " SIP_PORT
         SIP_PORT=${SIP_PORT:-5060}
     fi
@@ -251,12 +261,14 @@ data=$GSM_DEVICE
 imei=auto
 imsi=auto
 context=from-gsm
-exten=+1234567890
+exten=s
 dtmf=relax
 resetdongle=yes
 EOF
     
     print_success "GSM gateway configured"
+    print_info "Note: Audio device set to /dev/ttyUSB1 - adjust if your modem uses a different path"
+    print_info "Note: Extension set to 's' (wildcard) - calls will be routed via dialplan"
     log_message "GSM gateway configured on $GSM_DEVICE"
 }
 
@@ -314,7 +326,14 @@ start_service() {
     
     # Initialize GSM modem
     print_info "Initializing GSM modem..."
-    gammu identify 2>&1 | tee -a "$LOG_FILE" || print_warning "GSM modem initialization may need manual setup"
+    if ! gammu identify 2>&1 | tee -a "$LOG_FILE"; then
+        print_warning "GSM modem initialization failed"
+        print_info "Troubleshooting steps:"
+        print_info "  1. Check USB connection: lsusb"
+        print_info "  2. Verify device path: ls -l /dev/ttyUSB*"
+        print_info "  3. Try USB mode switch: usb_modeswitch"
+        print_info "  4. Check logs: tail -f $LOG_FILE"
+    fi
     
     # Save PID
     pidof asterisk > "$PID_FILE" 2>/dev/null || true
