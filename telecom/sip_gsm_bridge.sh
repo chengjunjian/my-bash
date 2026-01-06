@@ -145,13 +145,37 @@ install_dependencies() {
     # Update package list
     apt-get update
     
+    # Install build dependencies for chan_dongle
+    print_info "Installing build dependencies..."
+    apt-get install -y build-essential automake autoconf libtool pkg-config
+    apt-get install -y asterisk-dev libusb-1.0-0-dev
+    
     # Install Asterisk PBX
     print_info "Installing Asterisk PBX..."
     apt-get install -y asterisk asterisk-modules
     
+    # Install chan_dongle module for GSM modems
+    print_info "Installing chan_dongle module for GSM support..."
+    if [ ! -d /usr/src/asterisk-chan-dongle ]; then
+        cd /usr/src
+        git clone https://github.com/wdoekes/asterisk-chan-dongle.git
+        cd asterisk-chan-dongle
+        ./bootstrap
+        ./configure --with-asterisk=/usr/include
+        make
+        make install
+        print_success "chan_dongle installed successfully"
+    else
+        print_info "chan_dongle already downloaded, rebuilding..."
+        cd /usr/src/asterisk-chan-dongle
+        make clean
+        make
+        make install
+    fi
+    
     # Install GSM tools
     print_info "Installing GSM tools..."
-    apt-get install -y gammu gammu-smsd usb-modeswitch
+    apt-get install -y gammu gammu-smsd usb-modeswitch usb-modeswitch-data
     
     # Install audio tools
     print_info "Installing audio tools..."
@@ -159,10 +183,11 @@ install_dependencies() {
     
     # Install network tools
     print_info "Installing network tools..."
-    apt-get install -y socat netcat
+    apt-get install -y socat netcat git
     
     print_success "All dependencies installed successfully"
-    log_message "Dependencies installed"
+    print_info "Note: chan_dongle module installed to /usr/lib/asterisk/modules/"
+    log_message "Dependencies installed including chan_dongle"
 }
 
 #########################################################################
@@ -304,11 +329,40 @@ EOF
     log_message "Asterisk dialplan configured"
 }
 
+configure_modules() {
+    print_info "Configuring Asterisk to load chan_dongle module..."
+    
+    # Ensure modules.conf loads chan_dongle
+    if [ -f "$ASTERISK_CONFIG_DIR/modules.conf" ]; then
+        if ! grep -q "load => chan_dongle.so" "$ASTERISK_CONFIG_DIR/modules.conf"; then
+            # Add load directive for chan_dongle
+            sed -i '/\[modules\]/a load => chan_dongle.so' "$ASTERISK_CONFIG_DIR/modules.conf"
+            print_success "Added chan_dongle to modules.conf"
+        else
+            print_info "chan_dongle already in modules.conf"
+        fi
+    else
+        # Create modules.conf if it doesn't exist
+        cat > "$ASTERISK_CONFIG_DIR/modules.conf" <<EOF
+; Asterisk Modules Configuration
+; Generated on $(date)
+
+[modules]
+autoload=yes
+load => chan_dongle.so
+EOF
+        print_success "Created modules.conf with chan_dongle"
+    fi
+    
+    log_message "Asterisk modules configured"
+}
+
 configure_all() {
     print_info "Starting complete configuration..."
     configure_sip
     configure_gsm
     configure_dialplan
+    configure_modules
     save_config
     print_success "Configuration completed"
 }
@@ -368,13 +422,27 @@ check_status() {
     if systemctl is-active --quiet asterisk; then
         print_success "Asterisk service is running"
         
+        # Check chan_dongle module
+        print_info "Checking chan_dongle module..."
+        if asterisk -rx "module show like chan_dongle.so" 2>/dev/null | grep -q "chan_dongle.so"; then
+            print_success "chan_dongle module is loaded"
+        else
+            print_error "chan_dongle module is NOT loaded"
+            print_info "To load manually: asterisk -rx 'module load chan_dongle.so'"
+            print_info "Or reinstall: sudo ./sip_gsm_bridge.sh install"
+        fi
+        
         # Check SIP trunk status
         print_info "SIP Trunk Status:"
         asterisk -rx "sip show peers" 2>/dev/null | grep -A 1 "Name/username" || true
         
         # Check GSM dongle status
         print_info "GSM Dongle Status:"
-        asterisk -rx "dongle show devices" 2>/dev/null || print_warning "Chan_dongle module may not be loaded"
+        if asterisk -rx "module show like chan_dongle.so" 2>/dev/null | grep -q "chan_dongle.so"; then
+            asterisk -rx "dongle show devices" 2>/dev/null || print_warning "No dongle devices configured"
+        else
+            print_warning "Cannot check dongle status - chan_dongle module not loaded"
+        fi
         
         # Check active calls
         print_info "Active Calls:"
