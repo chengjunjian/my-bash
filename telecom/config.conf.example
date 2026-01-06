@@ -1,0 +1,46 @@
+# SIP-GSM Bridge Configuration Example
+# Copy this file to /etc/sip-gsm-bridge/config.conf and modify as needed
+
+# =============================================================================
+# SIP Configuration
+# =============================================================================
+# SIP server address (IP or hostname)
+SIP_SERVER="sip.example.com"
+
+# SIP authentication credentials
+SIP_USERNAME="your_sip_username"
+SIP_PASSWORD="your_sip_password"
+
+# SIP port (default: 5060)
+SIP_PORT="5060"
+
+# =============================================================================
+# GSM Configuration
+# =============================================================================
+# GSM modem device path
+# Common paths:
+#   /dev/ttyUSB0 - First USB serial device
+#   /dev/ttyUSB2 - Third USB serial device (some modems use this)
+#   /dev/ttyACM0 - Some modems appear as ACM devices
+GSM_DEVICE="/dev/ttyUSB0"
+
+# GSM modem baudrate
+# Common values: 9600, 19200, 38400, 57600, 115200, 460800
+GSM_BAUDRATE="115200"
+
+# =============================================================================
+# Bridge Configuration
+# =============================================================================
+# RTP port range start (for audio streaming)
+BRIDGE_PORT="10000"
+
+# =============================================================================
+# Additional Notes
+# =============================================================================
+# 1. Make sure your GSM modem supports voice calls
+# 2. Insert an active SIM card with voice service
+# 3. Configure your firewall to allow:
+#    - UDP port 5060 (SIP signaling)
+#    - UDP ports 10000-20000 (RTP audio)
+# 4. Test connectivity before starting the service:
+#    sudo ./sip_gsm_bridge.sh test
